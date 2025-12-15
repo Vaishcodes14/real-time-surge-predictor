@@ -9,6 +9,7 @@ app = FastAPI(title="Real-Time Demand Surge Predictor")
 # Load trained model
 model = joblib.load("lightgbm_surge_model.joblib")
 
+
 # Load zone centroids
 zones = pd.read_csv("zone_centroids.csv")
 
