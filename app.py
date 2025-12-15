@@ -4,21 +4,71 @@ import joblib
 import pandas as pd
 from datetime import datetime
 
+# ----------------------------
+# App initialization
+# ----------------------------
 app = FastAPI(title="Real-Time Demand Surge Predictor")
+
+# ----------------------------
+# Health check routes
+# ----------------------------
 @app.get("/")
 def home():
     return {"status": "API is running"}
 
+@app.get("/test")
+def test():
+    return {"test": "ok"}
 
-@app.get("/")
-def home():
-    return {"status": "API running"}
+# ----------------------------
+# Load model and zone data
+# ----------------------------
+model = joblib.load("lightgbm_surge_model.joblib")
+zones = pd.read_csv("zone_centroids.csv")
 
+# ----------------------------
+# Helper: map lat/lon to nearest zone
+# ----------------------------
+def latlon_to_zone(lat, lon):
+    zones["dist"] = (zones["lat"] - lat) ** 2 + (zones["lon"] - lon) ** 2
+    return int(zones.sort_values("dist").iloc[0]["zone_id"])
+
+# ----------------------------
+# Request schema
+# ----------------------------
 class LocationRequest(BaseModel):
     latitude: float
     longitude: float
     timestamp: datetime
 
+# ----------------------------
+# Prediction endpoint
+# ----------------------------
 @app.post("/predict_surge")
 def predict_surge(data: LocationRequest):
-    return {"message": "prediction endpoint works"}
+
+    zone_id = latlon_to_zone(data.latitude, data.longitude)
+
+    hour = data.timestamp.hour
+    dayofweek = data.timestamp.weekday()
+    is_weekend = 1 if dayofweek >= 5 else 0
+    is_rush_hour = 1 if hour in [7, 8, 9, 16, 17, 18, 19] else 0
+
+    # Feature vector (must match training features)
+    features = pd.DataFrame([{
+        "pickup_count": 0,
+        "od_trip_count": 0,
+        "avg_travel_time": 0,
+        "avg_speed": 0,
+        "hour": hour,
+        "dayofweek": dayofweek,
+        "is_weekend": is_weekend,
+        "is_rush_hour": is_rush_hour
+    }])
+
+    surge_prob = model.predict_proba(features)[0][1]
+
+    return {
+        "zone_id": zone_id,
+        "surge_probability": round(float(surge_prob), 3)
+    }
