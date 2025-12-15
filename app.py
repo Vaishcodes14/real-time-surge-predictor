@@ -5,6 +5,13 @@ import pandas as pd
 from datetime import datetime
 
 app = FastAPI(title="Real-Time Demand Surge Predictor")
+@app.get("/")
+def home():
+    return {
+        "message": "Real-Time Demand Surge Prediction API is running",
+        "docs": "Go to /docs for API documentation"
+    }
+
 
 # Load trained model
 model = joblib.load("lightgbm_surge_model.joblib")
