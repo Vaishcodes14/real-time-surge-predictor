@@ -5,6 +5,10 @@ import pandas as pd
 from datetime import datetime
 
 app = FastAPI(title="Real-Time Demand Surge Predictor")
+@app.get("/")
+def home():
+    return {"status": "API is running"}
+
 
 @app.get("/")
 def home():
