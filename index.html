@@ -1,44 +1,69 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
   <title>Ride Demand Surge Predictor</title>
+
+  <!-- 🔴 REPLACE YOUR_API_KEY_HERE WITH YOUR REAL KEY -->
   <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI&libraries=places"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+    }
+    input {
+      width: 350px;
+      padding: 10px;
+      font-size: 16px;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+  </style>
 </head>
 
-<body style="font-family: Arial; padding: 40px">
+<body>
 
-  <h2>Ride Demand Surge Predictor</h2>
+  <h2>🚕 Ride Demand Surge Predictor</h2>
+
+  <p>Enter a location and predict demand surge for the next 30 minutes.</p>
 
   <input
     id="location"
     type="text"
     placeholder="Enter location (e.g. Times Square New York)"
-    style="width: 300px; padding: 8px;"
   />
 
   <br><br>
 
-  <button onclick="predictSurge()" style="padding: 10px 20px;">
-    Predict Surge
-  </button>
+  <button onclick="predictSurge()">Predict Surge</button>
 
   <h3 id="result"></h3>
 
   <script>
-    const autocomplete = new google.maps.places.Autocomplete(
-      document.getElementById("location")
-    );
+    let selectedPlace = null;
+
+    // Enable Google Places autocomplete
+    const input = document.getElementById("location");
+    const autocomplete = new google.maps.places.Autocomplete(input);
+
+    // Store selected place
+    autocomplete.addListener("place_changed", () => {
+      selectedPlace = autocomplete.getPlace();
+    });
 
     function predictSurge() {
-      const place = autocomplete.getPlace();
-
-      if (!place.geometry) {
-        alert("Please select a valid location from suggestions");
+      if (!selectedPlace || !selectedPlace.geometry) {
+        alert("Please select a location from the dropdown suggestions");
         return;
       }
 
-      const lat = place.geometry.location.lat();
-      const lon = place.geometry.location.lng();
+      const lat = selectedPlace.geometry.location.lat();
+      const lon = selectedPlace.geometry.location.lng();
 
       const payload = {
         latitude: lat,
@@ -53,13 +78,13 @@
         },
         body: JSON.stringify(payload)
       })
-      .then(res => res.json())
+      .then(response => response.json())
       .then(data => {
         document.getElementById("result").innerText =
-          "Surge Probability: " + data.surge_probability;
+          "📈 Surge Probability: " + data.surge_probability;
       })
-      .catch(err => {
-        alert("Error calling API");
+      .catch(() => {
+        alert("Error connecting to backend");
       });
     }
   </script>
