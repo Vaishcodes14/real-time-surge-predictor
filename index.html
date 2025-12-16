@@ -4,9 +4,6 @@
   <meta charset="UTF-8" />
   <title>Ride Demand Surge Predictor</title>
 
-  <!-- 🔴 REPLACE YOUR_API_KEY_HERE WITH YOUR REAL KEY -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI&libraries=places"></script>
-
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -24,13 +21,18 @@
       cursor: pointer;
     }
   </style>
+
+  <!-- 🔴 Google Maps script (ASYNC + CALLBACK) -->
+  <script
+    src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY_HERE&libraries=places&callback=initAutocomplete"
+    async
+    defer>
+  </script>
 </head>
 
 <body>
 
   <h2>🚕 Ride Demand Surge Predictor</h2>
-
-  <p>Enter a location and predict demand surge for the next 30 minutes.</p>
 
   <input
     id="location"
@@ -45,16 +47,18 @@
   <h3 id="result"></h3>
 
   <script>
+    let autocomplete;
     let selectedPlace = null;
 
-    // Enable Google Places autocomplete
-    const input = document.getElementById("location");
-    const autocomplete = new google.maps.places.Autocomplete(input);
+    // 🔹 Called ONLY after Google script loads
+    function initAutocomplete() {
+      const input = document.getElementById("location");
+      autocomplete = new google.maps.places.Autocomplete(input);
 
-    // Store selected place
-    autocomplete.addListener("place_changed", () => {
-      selectedPlace = autocomplete.getPlace();
-    });
+      autocomplete.addListener("place_changed", () => {
+        selectedPlace = autocomplete.getPlace();
+      });
+    }
 
     function predictSurge() {
       if (!selectedPlace || !selectedPlace.geometry) {
@@ -65,27 +69,21 @@
       const lat = selectedPlace.geometry.location.lat();
       const lon = selectedPlace.geometry.location.lng();
 
-      const payload = {
-        latitude: lat,
-        longitude: lon,
-        timestamp: new Date().toISOString()
-      };
-
       fetch("https://real-time-surge-predictor.onrender.com/predict_surge", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          latitude: lat,
+          longitude: lon,
+          timestamp: new Date().toISOString()
+        })
       })
-      .then(response => response.json())
+      .then(res => res.json())
       .then(data => {
         document.getElementById("result").innerText =
           "📈 Surge Probability: " + data.surge_probability;
       })
-      .catch(() => {
-        alert("Error connecting to backend");
-      });
+      .catch(() => alert("Backend error"));
     }
   </script>
 
