@@ -29,7 +29,7 @@ def latlon_to_zone(lat, lon):
 # Helper: area name → lat/lon (Google Geocoding)
 # ---------------------------------
 def geocode_area(area_name: str):
-    api_key = os.getenv("GOOGLE_API_KEY")
+    api_key = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
     if not api_key:
         raise HTTPException(status_code=500, detail="Google API key not configured")
 
