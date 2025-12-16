@@ -1,46 +1,35 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import joblib
-import pandas as pd
 from datetime import datetime
+import pandas as pd
+import joblib
 import requests
 import os
 
-# ----------------------------
+# ---------------------------------
 # App initialization
-# ----------------------------
-app = FastAPI(title="Real-Time Route Demand Surge Predictor")
+# ---------------------------------
+app = FastAPI(title="Route Demand Surge Predictor")
 
-# ----------------------------
-# Health check routes
-# ----------------------------
-@app.get("/")
-def home():
-    return {"status": "API is running"}
-
-@app.get("/test")
-def test():
-    return {"test": "ok"}
-
-# ----------------------------
-# Load model and zone data
-# ----------------------------
+# ---------------------------------
+# Load ML model and zone data
+# ---------------------------------
 model = joblib.load("lightgbm_surge_model.joblib")
 zones = pd.read_csv("zone_centroids.csv")
 
-# ----------------------------
+# ---------------------------------
 # Helper: map lat/lon to nearest zone
-# ----------------------------
+# ---------------------------------
 def latlon_to_zone(lat, lon):
     zones["dist"] = (zones["lat"] - lat) ** 2 + (zones["lon"] - lon) ** 2
     return int(zones.sort_values("dist").iloc[0]["zone_id"])
 
-# ----------------------------
+# ---------------------------------
 # Helper: area name → lat/lon (Google Geocoding)
-# ----------------------------
+# ---------------------------------
 def geocode_area(area_name: str):
-    api_key = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
-
+    api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key:
         raise HTTPException(status_code=500, detail="Google API key not configured")
 
@@ -61,17 +50,65 @@ def geocode_area(area_name: str):
     location = response["results"][0]["geometry"]["location"]
     return location["lat"], location["lng"]
 
-# ----------------------------
+# ---------------------------------
+# Frontend UI (served from backend)
+# ---------------------------------
+@app.get("/", response_class=HTMLResponse)
+def serve_ui():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Route Demand Surge Predictor</title>
+</head>
+
+<body style="font-family: Arial; padding: 40px">
+
+  <h2>🚕 Route Demand Surge Predictor</h2>
+  <p>Predict demand surge for trips from A to B</p>
+
+  <input id="from" placeholder="From area" /><br><br>
+  <input id="to" placeholder="To area" /><br><br>
+
+  <button onclick="predict()">Predict Surge</button>
+
+  <h3 id="result"></h3>
+
+  <script>
+    function predict() {
+      fetch("/predict_surge_route", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin_area: document.getElementById("from").value,
+          destination_area: document.getElementById("to").value,
+          timestamp: new Date().toISOString()
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById("result").innerText =
+          "Surge Probability: " + data.surge_probability;
+      })
+      .catch(() => alert("Error predicting surge"));
+    }
+  </script>
+
+</body>
+</html>
+"""
+
+# ---------------------------------
 # Request schema (A → B by area name)
-# ----------------------------
+# ---------------------------------
 class RouteAreaRequest(BaseModel):
     origin_area: str
     destination_area: str
     timestamp: datetime
 
-# ----------------------------
+# ---------------------------------
 # Prediction endpoint (A → B)
-# ----------------------------
+# ---------------------------------
 @app.post("/predict_surge_route")
 def predict_surge_route(data: RouteAreaRequest):
 
@@ -79,7 +116,7 @@ def predict_surge_route(data: RouteAreaRequest):
     o_lat, o_lon = geocode_area(data.origin_area)
     d_lat, d_lon = geocode_area(data.destination_area)
 
-    # Map to zones
+    # Map to nearest zones
     origin_zone = latlon_to_zone(o_lat, o_lon)
     destination_zone = latlon_to_zone(d_lat, d_lon)
 
@@ -89,7 +126,7 @@ def predict_surge_route(data: RouteAreaRequest):
     is_weekend = 1 if dayofweek >= 5 else 0
     is_rush_hour = 1 if hour in [7, 8, 9, 16, 17, 18, 19] else 0
 
-    # Feature vector (must match training)
+    # Feature vector (must match training features)
     features = pd.DataFrame([{
         "pickup_count": 0,
         "od_trip_count": 0,
@@ -110,3 +147,10 @@ def predict_surge_route(data: RouteAreaRequest):
         "destination_zone": destination_zone,
         "surge_probability": round(float(surge_prob), 3)
     }
+
+# ---------------------------------
+# Health check
+# ---------------------------------
+@app.get("/test")
+def test():
+    return {"status": "ok"}
