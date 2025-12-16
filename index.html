@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ride Demand Surge Predictor</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&libraries=places"></script>
+</head>
+
+<body style="font-family: Arial; padding: 40px">
+
+  <h2>Ride Demand Surge Predictor</h2>
+
+  <input
+    id="location"
+    type="text"
+    placeholder="Enter location (e.g. Times Square New York)"
+    style="width: 300px; padding: 8px;"
+  />
+
+  <br><br>
+
+  <button onclick="predictSurge()" style="padding: 10px 20px;">
+    Predict Surge
+  </button>
+
+  <h3 id="result"></h3>
+
+  <script>
+    const autocomplete = new google.maps.places.Autocomplete(
+      document.getElementById("location")
+    );
+
+    function predictSurge() {
+      const place = autocomplete.getPlace();
+
+      if (!place.geometry) {
+        alert("Please select a valid location from suggestions");
+        return;
+      }
+
+      const lat = place.geometry.location.lat();
+      const lon = place.geometry.location.lng();
+
+      const payload = {
+        latitude: lat,
+        longitude: lon,
+        timestamp: new Date().toISOString()
+      };
+
+      fetch("https://real-time-surge-predictor.onrender.com/predict_surge", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      })
+      .then(res => res.json())
+      .then(data => {
+        document.getElementById("result").innerText =
+          "Surge Probability: " + data.surge_probability;
+      })
+      .catch(err => {
+        alert("Error calling API");
+      });
+    }
+  </script>
+
+</body>
+</html>
