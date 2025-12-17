@@ -1,22 +1,25 @@
 import streamlit as st
+import pandas as pd
+import joblib
 import requests
 import time
-import joblib
-import pandas as pd
 from datetime import datetime
 
-# -------------------------------------------------
-# Page config
-# -------------------------------------------------
+# =================================================
+# PAGE CONFIG
+# =================================================
 st.set_page_config(
-    page_title="Route Demand Surge Predictor",
+    page_title="Ride Demand Surge Predictor",
     page_icon="🚕",
     layout="centered"
 )
 
-# -------------------------------------------------
-# Load model & zone data
-# -------------------------------------------------
+st.title("🚕 Ride Demand Surge Predictor")
+st.caption("Predict surge probability between two locations")
+
+# =================================================
+# LOAD MODEL & DATA (CACHED)
+# =================================================
 @st.cache_resource
 def load_model():
     return joblib.load("lightgbm_surge_model.joblib")
@@ -28,56 +31,56 @@ def load_zones():
 model = load_model()
 zones = load_zones()
 
-# -------------------------------------------------
-# Helper: Geocode using OpenStreetMap (Nominatim)
-# -------------------------------------------------
+# =================================================
+# GEOCODING (OPENSTREETMAP – SAFE VERSION)
+# =================================================
 def geocode_place(place_name):
     url = "https://nominatim.openstreetmap.org/search"
     params = {
         "q": place_name,
         "format": "json",
+        "addressdetails": 1,
         "limit": 1
     }
     headers = {
-        "User-Agent": "DemandSurgePredictor/1.0 (student-project)"
+        "User-Agent": "RideSurgePredictor/1.0 (academic-project)"
     }
 
-    for _ in range(3):  # retry 3 times
+    for attempt in range(3):
         try:
-            response = requests.get(
-                url,
-                params=params,
-                headers=headers,
-                timeout=15
-            )
-            response.raise_for_status()
-            data = response.json()
+            r = requests.get(url, params=params, headers=headers, timeout=15)
+            r.raise_for_status()
+            data = r.json()
 
-            if not data:
-                return None, None
+            if len(data) == 0:
+                return None
 
-            return float(data[0]["lat"]), float(data[0]["lon"])
+            return {
+                "lat": float(data[0]["lat"]),
+                "lon": float(data[0]["lon"]),
+                "display": data[0].get("display_name", "")
+            }
 
         except requests.exceptions.RequestException:
             time.sleep(1)
 
-    return None, None
+    return None
 
-# -------------------------------------------------
-# Helper: Map lat/lon → nearest zone
-# -------------------------------------------------
+# =================================================
+# MAP COORDINATES → ZONE
+# =================================================
 def latlon_to_zone(lat, lon):
-    zones_copy = zones.copy()
-    zones_copy["dist"] = (zones_copy["lat"] - lat) ** 2 + (zones_copy["lon"] - lon) ** 2
-    return int(zones_copy.sort_values("dist").iloc[0]["zone_id"])
+    df = zones.copy()
+    df["dist"] = (df["lat"] - lat) ** 2 + (df["lon"] - lon) ** 2
+    return int(df.sort_values("dist").iloc[0]["zone_id"])
 
-# -------------------------------------------------
-# Helper: Build feature vector
-# -------------------------------------------------
+# =================================================
+# BUILD FEATURE VECTOR
+# =================================================
 def build_features():
     now = datetime.utcnow()
     hour = now.hour
-    dayofweek = now.weekday()
+    day = now.weekday()
 
     return pd.DataFrame([{
         "pickup_count": 0,
@@ -85,56 +88,70 @@ def build_features():
         "avg_travel_time": 0,
         "avg_speed": 0,
         "hour": hour,
-        "dayofweek": dayofweek,
-        "is_weekend": 1 if dayofweek >= 5 else 0,
-        "is_rush_hour": 1 if hour in [7, 8, 9, 16, 17, 18, 19] else 0
+        "dayofweek": day,
+        "is_weekend": int(day >= 5),
+        "is_rush_hour": int(hour in [7, 8, 9, 16, 17, 18, 19])
     }])
 
-# -------------------------------------------------
-# UI
-# -------------------------------------------------
-st.title("🚕 Route Demand Surge Predictor")
-st.caption("Predict demand surge between two locations using ML")
+# =================================================
+# UI INPUTS
+# =================================================
+st.subheader("📍 Enter locations")
 
-st.markdown("### 📍 Enter trip locations")
-
-from_area = st.text_input(
+from_place = st.text_input(
     "From location",
-    placeholder="e.g. JFK International Airport, New York"
+    placeholder="e.g. JFK International Airport, New York, USA"
 )
 
-to_area = st.text_input(
+to_place = st.text_input(
     "To location",
-    placeholder="e.g. Times Square, Manhattan"
+    placeholder="e.g. Times Square, Manhattan, New York, USA"
 )
 
-# -------------------------------------------------
-# Prediction
-# -------------------------------------------------
+# =================================================
+# PREDICTION LOGIC
+# =================================================
 if st.button("🔮 Predict Surge"):
-    if not from_area or not to_area:
-        st.error("❌ Please enter both locations")
+
+    if not from_place or not to_place:
+        st.warning("Please enter both locations")
         st.stop()
 
-    with st.spinner("Detecting locations..."):
-        from_lat, from_lon = geocode_place(from_area)
-        to_lat, to_lon = geocode_place(to_area)
+    with st.spinner("Resolving locations using OpenStreetMap..."):
+        from_geo = geocode_place(from_place)
+        to_geo = geocode_place(to_place)
 
-    if from_lat is None or to_lat is None:
-        st.error("❌ Unable to detect one or both locations. Try a more specific name.")
+    if from_geo is None:
+        st.error(f"❌ Could not detect FROM location:\n\n**{from_place}**")
         st.stop()
 
-    from_zone = latlon_to_zone(from_lat, from_lon)
-    to_zone = latlon_to_zone(to_lat, to_lon)
+    if to_geo is None:
+        st.error(f"❌ Could not detect TO location:\n\n**{to_place}**")
+        st.stop()
+
+    st.success("📍 Locations detected successfully")
+
+    st.write("**From:**", from_geo["display"])
+    st.write("**To:**", to_geo["display"])
+
+    from_zone = latlon_to_zone(from_geo["lat"], from_geo["lon"])
+    to_zone = latlon_to_zone(to_geo["lat"], to_geo["lon"])
 
     features = build_features()
     surge_prob = model.predict_proba(features)[0][1]
 
-    st.success(f"📊 **Surge Probability: {round(float(surge_prob), 3)}**")
-    st.info(f"📍 Route: Zone {from_zone} → Zone {to_zone}")
+    st.markdown("---")
+    st.subheader("📊 Prediction Result")
 
-# -------------------------------------------------
-# Footer
-# -------------------------------------------------
+    st.metric(
+        label="Surge Probability",
+        value=round(float(surge_prob), 3)
+    )
+
+    st.caption(f"Route: Zone {from_zone} → Zone {to_zone}")
+
+# =================================================
+# FOOTER
+# =================================================
 st.markdown("---")
-st.caption("Powered by OpenStreetMap + LightGBM | Academic Project Demo")
+st.caption("OpenStreetMap (Nominatim) + LightGBM | Academic ML Project")
