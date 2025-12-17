@@ -1,9 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-import joblib
 import pandas as pd
+import joblib
 from datetime import datetime
+import math
 
 # -----------------------------
 # App initialization
@@ -11,92 +12,87 @@ from datetime import datetime
 app = FastAPI(title="Route Demand Surge Predictor")
 
 # -----------------------------
-# Load model & zone data
+# Load model & zone centroids
 # -----------------------------
 model = joblib.load("lightgbm_surge_model.joblib")
 zones = pd.read_csv("zone_centroids.csv")
 
-# Normalize names for matching
-zones["zone_name"] = zones["zone_name"].str.lower().str.strip()
+# -----------------------------
+# Helper: lat/lon → nearest zone
+# -----------------------------
+def latlon_to_zone(lat, lon):
+    zones["dist"] = (zones["lat"] - lat) ** 2 + (zones["lon"] - lon) ** 2
+    return int(zones.sort_values("dist").iloc[0]["zone_id"])
 
 # -----------------------------
-# Helper: area name -> zone_id
-# -----------------------------
-def area_to_zone(area_name: str):
-    area_name = area_name.lower().strip()
-    match = zones[zones["zone_name"] == area_name]
-
-    if match.empty:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unknown area name: {area_name}"
-        )
-
-    return int(match.iloc[0]["zone_id"])
-
-# -----------------------------
-# Request schema
+# Request schema (A → B)
 # -----------------------------
 class RouteRequest(BaseModel):
-    from_area: str
-    to_area: str
+    from_lat: float
+    from_lon: float
+    to_lat: float
+    to_lon: float
 
 # -----------------------------
-# Home (frontend served from backend)
+# Frontend UI
 # -----------------------------
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Route Demand Surge Predictor</title>
-        <style>
-            body { font-family: Arial; padding: 40px; }
-            input { padding: 8px; width: 250px; }
-            button { padding: 10px 20px; margin-top: 10px; }
-        </style>
-    </head>
-    <body>
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Route Demand Surge Predictor</title>
+</head>
 
-        <h2>🚕 Route Demand Surge Predictor</h2>
-        <p>Predict demand surge for trips from A to B</p>
+<body style="font-family: Arial; padding: 40px">
 
-        <input id="from" placeholder="From area" /><br><br>
-        <input id="to" placeholder="To area" /><br><br>
+  <h2>🚕 Route Demand Surge Predictor</h2>
+  <p>Enter latitude & longitude for source and destination</p>
 
-        <button onclick="predict()">Predict Surge</button>
+  <h4>From</h4>
+  <input id="from_lat" placeholder="From latitude" /><br><br>
+  <input id="from_lon" placeholder="From longitude" /><br><br>
 
-        <h3 id="result"></h3>
+  <h4>To</h4>
+  <input id="to_lat" placeholder="To latitude" /><br><br>
+  <input id="to_lon" placeholder="To longitude" /><br><br>
 
-        <script>
-            function predict() {
-                const fromArea = document.getElementById("from").value;
-                const toArea = document.getElementById("to").value;
+  <button onclick="predict()">Predict Surge</button>
 
-                fetch("/predict_surge", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        from_area: fromArea,
-                        to_area: toArea
-                    })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    document.getElementById("result").innerText =
-                        "Surge Probability: " + data.surge_probability;
-                })
-                .catch(err => {
-                    document.getElementById("result").innerText =
-                        "Error predicting surge";
-                });
-            }
-        </script>
+  <h3 id="result"></h3>
 
-    </body>
-    </html>
-    """
+  <script>
+    function predict() {
+      fetch("/predict_surge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_lat: parseFloat(document.getElementById("from_lat").value),
+          from_lon: parseFloat(document.getElementById("from_lon").value),
+          to_lat: parseFloat(document.getElementById("to_lat").value),
+          to_lon: parseFloat(document.getElementById("to_lon").value)
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.surge_probability !== undefined) {
+          document.getElementById("result").innerText =
+            "Surge Probability: " + data.surge_probability;
+        } else {
+          document.getElementById("result").innerText =
+            "Error: " + JSON.stringify(data);
+        }
+      })
+      .catch(() => {
+        document.getElementById("result").innerText = "Backend error";
+      });
+    }
+  </script>
+
+</body>
+</html>
+"""
 
 # -----------------------------
 # Health check
@@ -106,13 +102,13 @@ def test():
     return {"status": "ok"}
 
 # -----------------------------
-# Prediction endpoint (A -> B)
+# Prediction endpoint
 # -----------------------------
 @app.post("/predict_surge")
 def predict_surge(req: RouteRequest):
 
-    from_zone = area_to_zone(req.from_area)
-    to_zone = area_to_zone(req.to_area)
+    from_zone = latlon_to_zone(req.from_lat, req.from_lon)
+    to_zone = latlon_to_zone(req.to_lat, req.to_lon)
 
     now = datetime.now()
     hour = now.hour
