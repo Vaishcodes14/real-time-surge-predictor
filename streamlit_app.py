@@ -5,6 +5,9 @@ import pandas as pd
 import joblib
 import requests
 from datetime import datetime
+import streamlit as st
+st.write("🚀 App is starting...")
+
 
 # -----------------------------
 # App init
