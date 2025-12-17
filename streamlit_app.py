@@ -9,13 +9,13 @@ from datetime import datetime
 # PAGE CONFIG
 # =================================================
 st.set_page_config(
-    page_title="Ride Demand Surge Predictor",
+    page_title="Ride Demand Status Checker",
     page_icon="🚕",
     layout="centered"
 )
 
-st.title("🚕 Ride Demand Surge Predictor")
-st.caption("Check how surge probability changes for different routes")
+st.title("🚕 Ride Demand Status Checker")
+st.caption("Check how busy a route is before booking a ride")
 
 # =================================================
 # LOAD MODEL & ZONE DATA (CACHED)
@@ -42,7 +42,7 @@ def geocode_place(place_name):
         "limit": 1
     }
     headers = {
-        "User-Agent": "RideSurgePredictor/1.0 (academic-project)"
+        "User-Agent": "RideDemandChecker/1.0 (academic-project)"
     }
 
     for _ in range(3):
@@ -74,7 +74,7 @@ def latlon_to_zone(lat, lon):
     return int(df.sort_values("dist").iloc[0]["zone_id"])
 
 # =================================================
-# DEMAND SIMULATION (KEY PART 🔥)
+# DEMAND SIMULATION (KEY LOGIC)
 # =================================================
 def estimate_demand(place_name):
     name = place_name.lower()
@@ -82,7 +82,7 @@ def estimate_demand(place_name):
     high_demand = [
         "airport", "station", "downtown", "central",
         "mall", "market", "stadium", "tech park",
-        "it park", "business", "terminal"
+        "it park", "terminal", "business"
     ]
 
     medium_demand = [
@@ -143,13 +143,13 @@ to_place = st.text_input(
 # =================================================
 # PREDICTION
 # =================================================
-if st.button("🔮 Predict Surge"):
+if st.button("🔍 Check Route Status"):
 
     if not from_place or not to_place:
         st.warning("Please enter both locations")
         st.stop()
 
-    with st.spinner("Resolving locations..."):
+    with st.spinner("Detecting locations..."):
         from_geo = geocode_place(from_place)
         to_geo = geocode_place(to_place)
 
@@ -168,22 +168,22 @@ if st.button("🔮 Predict Surge"):
     surge_prob = model.predict_proba(features)[0][1]
 
     st.markdown("---")
-    st.subheader("📊 Surge Prediction Result")
+    st.subheader("🚦 Route Demand Status")
 
-    st.metric(
-        label="Surge Probability",
-        value=round(float(surge_prob), 3)
-    )
+    # =================================================
+    # BUSY STATUS (USER FRIENDLY OUTPUT)
+    # =================================================
+    if surge_prob >= 0.75:
+        st.error("🔥 VERY BUSY")
+        st.write("High demand detected. Expect surge pricing and longer wait times.")
+    elif surge_prob >= 0.45:
+        st.warning("⚠️ MODERATELY BUSY")
+        st.write("Demand is rising. Some delays may occur.")
+    else:
+        st.success("✅ NOT BUSY")
+        st.write("Normal demand. Easy availability of rides.")
 
     st.caption(f"Route: Zone {from_zone} → Zone {to_zone}")
-
-    # Explain surge reason (VERY GOOD FOR GUIDE)
-    if surge_prob > 0.7:
-        st.error("🔥 Very high demand detected (peak surge)")
-    elif surge_prob > 0.4:
-        st.warning("⚠️ Moderate demand (possible surge)")
-    else:
-        st.success("✅ Normal demand (no surge expected)")
 
 # =================================================
 # FOOTER
