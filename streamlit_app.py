@@ -15,10 +15,10 @@ st.set_page_config(
 )
 
 st.title("🚕 Ride Demand Surge Predictor")
-st.caption("Predict surge probability between two locations")
+st.caption("Check how surge probability changes for different routes")
 
 # =================================================
-# LOAD MODEL & DATA (CACHED)
+# LOAD MODEL & ZONE DATA (CACHED)
 # =================================================
 @st.cache_resource
 def load_model():
@@ -32,33 +32,32 @@ model = load_model()
 zones = load_zones()
 
 # =================================================
-# GEOCODING (OPENSTREETMAP – SAFE VERSION)
+# OPENSTREETMAP GEOCODING (SAFE)
 # =================================================
 def geocode_place(place_name):
     url = "https://nominatim.openstreetmap.org/search"
     params = {
         "q": place_name,
         "format": "json",
-        "addressdetails": 1,
         "limit": 1
     }
     headers = {
         "User-Agent": "RideSurgePredictor/1.0 (academic-project)"
     }
 
-    for attempt in range(3):
+    for _ in range(3):
         try:
             r = requests.get(url, params=params, headers=headers, timeout=15)
             r.raise_for_status()
             data = r.json()
 
-            if len(data) == 0:
+            if not data:
                 return None
 
             return {
                 "lat": float(data[0]["lat"]),
                 "lon": float(data[0]["lon"]),
-                "display": data[0].get("display_name", "")
+                "display": data[0]["display_name"]
             }
 
         except requests.exceptions.RequestException:
@@ -75,18 +74,51 @@ def latlon_to_zone(lat, lon):
     return int(df.sort_values("dist").iloc[0]["zone_id"])
 
 # =================================================
-# BUILD FEATURE VECTOR
+# DEMAND SIMULATION (KEY PART 🔥)
 # =================================================
-def build_features():
+def estimate_demand(place_name):
+    name = place_name.lower()
+
+    high_demand = [
+        "airport", "station", "downtown", "central",
+        "mall", "market", "stadium", "tech park",
+        "it park", "business", "terminal"
+    ]
+
+    medium_demand = [
+        "city", "road", "circle", "square",
+        "junction", "plaza"
+    ]
+
+    for word in high_demand:
+        if word in name:
+            return 140
+
+    for word in medium_demand:
+        if word in name:
+            return 80
+
+    return 30  # residential / calm area
+
+# =================================================
+# FEATURE GENERATION
+# =================================================
+def build_features(from_place, to_place):
     now = datetime.utcnow()
     hour = now.hour
     day = now.weekday()
 
+    pickup_count = estimate_demand(from_place)
+    od_trip_count = estimate_demand(to_place)
+
+    avg_travel_time = 35 if pickup_count > 100 else 20
+    avg_speed = 15 if pickup_count > 100 else 30
+
     return pd.DataFrame([{
-        "pickup_count": 0,
-        "od_trip_count": 0,
-        "avg_travel_time": 0,
-        "avg_speed": 0,
+        "pickup_count": pickup_count,
+        "od_trip_count": od_trip_count,
+        "avg_travel_time": avg_travel_time,
+        "avg_speed": avg_speed,
         "hour": hour,
         "dayofweek": day,
         "is_weekend": int(day >= 5),
@@ -96,20 +128,20 @@ def build_features():
 # =================================================
 # UI INPUTS
 # =================================================
-st.subheader("📍 Enter locations")
+st.subheader("📍 Enter trip locations")
 
 from_place = st.text_input(
     "From location",
-    placeholder="e.g. JFK International Airport, New York, USA"
+    placeholder="e.g. JFK International Airport, New York"
 )
 
 to_place = st.text_input(
     "To location",
-    placeholder="e.g. Times Square, Manhattan, New York, USA"
+    placeholder="e.g. Times Square, Manhattan"
 )
 
 # =================================================
-# PREDICTION LOGIC
+# PREDICTION
 # =================================================
 if st.button("🔮 Predict Surge"):
 
@@ -117,31 +149,26 @@ if st.button("🔮 Predict Surge"):
         st.warning("Please enter both locations")
         st.stop()
 
-    with st.spinner("Resolving locations using OpenStreetMap..."):
+    with st.spinner("Resolving locations..."):
         from_geo = geocode_place(from_place)
         to_geo = geocode_place(to_place)
 
     if from_geo is None:
-        st.error(f"❌ Could not detect FROM location:\n\n**{from_place}**")
+        st.error(f"❌ Could not detect FROM location: {from_place}")
         st.stop()
 
     if to_geo is None:
-        st.error(f"❌ Could not detect TO location:\n\n**{to_place}**")
+        st.error(f"❌ Could not detect TO location: {to_place}")
         st.stop()
-
-    st.success("📍 Locations detected successfully")
-
-    st.write("**From:**", from_geo["display"])
-    st.write("**To:**", to_geo["display"])
 
     from_zone = latlon_to_zone(from_geo["lat"], from_geo["lon"])
     to_zone = latlon_to_zone(to_geo["lat"], to_geo["lon"])
 
-    features = build_features()
+    features = build_features(from_place, to_place)
     surge_prob = model.predict_proba(features)[0][1]
 
     st.markdown("---")
-    st.subheader("📊 Prediction Result")
+    st.subheader("📊 Surge Prediction Result")
 
     st.metric(
         label="Surge Probability",
@@ -150,8 +177,16 @@ if st.button("🔮 Predict Surge"):
 
     st.caption(f"Route: Zone {from_zone} → Zone {to_zone}")
 
+    # Explain surge reason (VERY GOOD FOR GUIDE)
+    if surge_prob > 0.7:
+        st.error("🔥 Very high demand detected (peak surge)")
+    elif surge_prob > 0.4:
+        st.warning("⚠️ Moderate demand (possible surge)")
+    else:
+        st.success("✅ Normal demand (no surge expected)")
+
 # =================================================
 # FOOTER
 # =================================================
 st.markdown("---")
-st.caption("OpenStreetMap (Nominatim) + LightGBM | Academic ML Project")
+st.caption("OpenStreetMap + LightGBM | Academic Project Demo")
