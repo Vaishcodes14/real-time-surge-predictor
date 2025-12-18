@@ -6,50 +6,36 @@ import os
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
-# =================================================
-# PAGE CONFIG
-# =================================================
-st.set_page_config(
-    page_title="Ride Surge, ETA & Weather Predictor",
-    page_icon="🚕",
-    layout="centered"
-)
+# -------------------------------
+# Page setup
+# -------------------------------
+st.set_page_config(page_title="Ride Surge Predictor", page_icon="🚕")
+st.title("🚕 Ride Demand Surge Predictor")
+st.caption("NYC | Google Location | Weather-aware")
 
-st.title("🚕 Ride Surge, ETA & Weather Predictor")
-st.caption("NYC-based | Google Geocoding | Weather-aware")
-
-# =================================================
-# LOAD API KEYS (NO CHECKS)
-# =================================================
+# -------------------------------
+# Load API keys
+# -------------------------------
 GOOGLE_API_KEY = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
 OPENWEATHER_API_KEY = os.getenv("fc66323ad12fd29d89668cd000db815c")
 
-# =================================================
-# LOAD MODEL
-# =================================================
+# -------------------------------
+# Load ML model
+# -------------------------------
 @st.cache_resource
 def load_model():
     return joblib.load("lightgbm_surge_model.joblib")
 
 model = load_model()
 
-# =================================================
-# GOOGLE GEOCODING
-# =================================================
+# -------------------------------
+# Google Geocoding
+# -------------------------------
 def geocode_place(place):
     url = "https://maps.googleapis.com/maps/api/geocode/json"
-    params = {
-        "address": place,
-        "key": GOOGLE_API_KEY
-    }
-
+    params = {"address": place, "key": GOOGLE_API_KEY}
     r = requests.get(url, params=params, timeout=10)
     data = r.json()
-
-    # 🔴 DEBUG OUTPUT
-    st.write("Geocode request:", place)
-    st.write("Google response status:", data.get("status"))
-    st.write("Full response:", data)
 
     if data.get("status") != "OK":
         return None
@@ -57,10 +43,9 @@ def geocode_place(place):
     loc = data["results"][0]["geometry"]["location"]
     return loc["lat"], loc["lng"]
 
-
-# =================================================
-# WEATHER (OPENWEATHERMAP)
-# =================================================
+# -------------------------------
+# Weather (OpenWeather)
+# -------------------------------
 def get_weather(lat, lon):
     if not OPENWEATHER_API_KEY:
         return "Unknown"
@@ -73,16 +58,13 @@ def get_weather(lat, lon):
         "units": "metric"
     }
 
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        return data["weather"][0]["main"]
-    except:
-        return "Unknown"
+    r = requests.get(url, params=params, timeout=10)
+    data = r.json()
+    return data["weather"][0]["main"]
 
-# =================================================
-# DISTANCE (HAVERSINE)
-# =================================================
+# -------------------------------
+# Distance (Haversine)
+# -------------------------------
 def haversine(lat1, lon1, lat2, lon2):
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
@@ -90,127 +72,104 @@ def haversine(lat1, lon1, lat2, lon2):
     a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
     return 6371 * 2 * asin(sqrt(a))  # km
 
-# =================================================
-# DEMAND ESTIMATION
-# =================================================
+# -------------------------------
+# Simple NYC demand logic
+# -------------------------------
 def estimate_demand(place):
     p = place.lower()
-    if any(w in p for w in ["airport", "station", "terminal", "downtown"]):
-        return 140
-    if any(w in p for w in ["square", "avenue", "road", "mall"]):
-        return 80
-    return 30
+    if "airport" in p:
+        return 150
+    if "station" in p or "terminal" in p:
+        return 120
+    if "square" in p or "downtown" in p:
+        return 90
+    return 40
 
-# =================================================
-# FEATURE GENERATION (TIME + WEATHER)
-# =================================================
-def build_features(from_place, to_place, is_peak, weather):
-    now = datetime.utcnow()
-    hour = now.hour
-    day = now.weekday()
-
-    pickup = estimate_demand(from_place)
-    drop = estimate_demand(to_place)
-
-    avg_speed = 30 if pickup < 100 else 18
-
-    if is_peak:
-        avg_speed -= 6
-
-    if weather in ["Rain", "Thunderstorm"]:
-        avg_speed -= 5
-
-    avg_speed = max(avg_speed, 10)
-
-    features = pd.DataFrame([{
-        "pickup_count": pickup,
-        "od_trip_count": drop,
-        "avg_travel_time": 0,
-        "avg_speed": avg_speed,
-        "hour": hour,
-        "dayofweek": day,
-        "is_weekend": int(day >= 5),
-        "is_rush_hour": int(is_peak)
-    }])
-
-    return features, avg_speed
-
-# =================================================
+# -------------------------------
 # UI
-# =================================================
-st.subheader("📍 Enter trip locations (New York City)")
-
+# -------------------------------
 from_place = st.text_input(
     "From location",
-    placeholder="e.g. JFK International Airport, New York"
+    placeholder="JFK International Airport, New York"
 )
 
 to_place = st.text_input(
     "To location",
-    placeholder="e.g. Times Square, Manhattan"
+    placeholder="Times Square, Manhattan, New York"
 )
 
-time_mode = st.radio(
+time_type = st.radio(
     "⏰ Time of travel",
     ["Peak Hours", "Off-Peak Hours"],
     horizontal=True
 )
 
-is_peak = time_mode == "Peak Hours"
+is_peak = time_type == "Peak Hours"
 
-# =================================================
-# PREDICT
-# =================================================
-if st.button("🔍 Analyze Route"):
+# -------------------------------
+# Prediction
+# -------------------------------
+if st.button("🔍 Predict"):
 
     if not from_place or not to_place:
         st.warning("Please enter both locations")
 
     else:
-        with st.spinner("Resolving locations..."):
-            from_geo = geocode_place(from_place)
-            to_geo = geocode_place(to_place)
+        from_geo = geocode_place(from_place)
+        to_geo = geocode_place(to_place)
 
         if not from_geo or not to_geo:
-            st.error("❌ Could not detect one or both locations.")
+            st.error("❌ Could not detect one or both locations")
         else:
             weather = get_weather(from_geo[0], from_geo[1])
-
             distance_km = haversine(
                 from_geo[0], from_geo[1],
                 to_geo[0], to_geo[1]
             )
 
-            features, avg_speed = build_features(
-                from_place, to_place, is_peak, weather
-            )
+            pickup = estimate_demand(from_place)
+            drop = estimate_demand(to_place)
+
+            now = datetime.utcnow()
+
+            avg_speed = 28
+            if is_peak:
+                avg_speed -= 8
+            if weather in ["Rain", "Thunderstorm"]:
+                avg_speed -= 5
+
+            avg_speed = max(avg_speed, 12)
+
+            features = pd.DataFrame([{
+                "pickup_count": pickup,
+                "od_trip_count": drop,
+                "avg_travel_time": 0,
+                "avg_speed": avg_speed,
+                "hour": now.hour,
+                "dayofweek": now.weekday(),
+                "is_weekend": int(now.weekday() >= 5),
+                "is_rush_hour": int(is_peak)
+            }])
 
             surge_prob = model.predict_proba(features)[0][1]
-            travel_time_min = (distance_km / avg_speed) * 60
+            eta_min = (distance_km / avg_speed) * 60
 
             st.markdown("---")
-            st.subheader("🚦 Route Result")
+            st.subheader("🚦 Result")
 
-            if surge_prob >= 0.75:
-                st.error("🔥 VERY BUSY")
-            elif surge_prob >= 0.45:
-                st.warning("⚠️ MODERATELY BUSY")
+            if surge_prob > 0.7:
+                st.error("🔥 HIGH DEMAND (SURGE LIKELY)")
+            elif surge_prob > 0.4:
+                st.warning("⚠️ MODERATE DEMAND")
             else:
-                st.success("✅ NOT BUSY")
+                st.success("✅ LOW DEMAND")
 
-            st.markdown("### 🌦️ Weather")
-            st.write(weather)
-
-            st.markdown("### ⏱️ Estimated Travel Time")
+            st.write(f"🌦️ Weather: **{weather}**")
             st.write(f"🛣️ Distance: **{distance_km:.1f} km**")
-            st.write(f"🚗 Avg Speed: **{avg_speed} km/h**")
-            st.write(f"⏰ ETA: **{travel_time_min:.0f} minutes**")
+            st.write(f"⏱️ ETA: **{eta_min:.0f} minutes**")
 
-# =================================================
-# FOOTER
-# =================================================
+# -------------------------------
+# Footer
+# -------------------------------
 st.markdown("---")
-st.caption(
-    "Google Geocoding for location, OpenWeatherMap for weather. "
-    "Surge model trained on NYC taxi data. ETA is estimated."
-)
+st.caption("LightGBM model trained on NYC taxi data | Weather from OpenWeather")
