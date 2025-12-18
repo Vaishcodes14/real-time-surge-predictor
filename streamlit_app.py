@@ -6,11 +6,11 @@ import os
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
-# =================================================
+# -------------------------------------------------
 # PAGE CONFIG
-# =================================================
+# -------------------------------------------------
 st.set_page_config(
-    page_title="Ride Surge & ETA Predictor",
+    page_title="Ride Demand Surge & ETA Predictor",
     page_icon="🚕",
     layout="centered"
 )
@@ -18,32 +18,28 @@ st.set_page_config(
 st.title("🚕 Ride Demand Surge & ETA Predictor")
 st.caption("NYC-based | Google Geocoding | Peak vs Off-Peak")
 
-# =================================================
-# LOAD GOOGLE API KEY (MUST BE FIRST)
-# =================================================
+# -------------------------------------------------
+# LOAD GOOGLE API KEY (NO CHECK, JUST LOAD)
+# -------------------------------------------------
 GOOGLE_API_KEY = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
 
-if not GOOGLE_API_KEY:
-    st.error("❌ GOOGLE_API_KEY not set in Streamlit Secrets")
-    st.stop()
-
-# =================================================
+# -------------------------------------------------
 # LOAD MODEL
-# =================================================
+# -------------------------------------------------
 @st.cache_resource
 def load_model():
     return joblib.load("lightgbm_surge_model.joblib")
 
 model = load_model()
 
-# =================================================
-# GOOGLE GEOCODING FUNCTION
-# =================================================
+# -------------------------------------------------
+# GOOGLE GEOCODING
+# -------------------------------------------------
 def geocode_place(place):
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
         "address": place,
-        "key": GOOGLE_API_KEY
+        "key": AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI
     }
 
     try:
@@ -56,12 +52,12 @@ def geocode_place(place):
         loc = data["results"][0]["geometry"]["location"]
         return loc["lat"], loc["lng"]
 
-    except Exception:
+    except:
         return None
 
-# =================================================
+# -------------------------------------------------
 # DISTANCE (HAVERSINE)
-# =================================================
+# -------------------------------------------------
 def haversine(lat1, lon1, lat2, lon2):
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
@@ -69,9 +65,9 @@ def haversine(lat1, lon1, lat2, lon2):
     a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
     return 6371 * 2 * asin(sqrt(a))  # km
 
-# =================================================
+# -------------------------------------------------
 # DEMAND ESTIMATION (NYC LOGIC)
-# =================================================
+# -------------------------------------------------
 def estimate_demand(place):
     p = place.lower()
     if any(w in p for w in ["airport", "station", "terminal", "downtown"]):
@@ -80,9 +76,9 @@ def estimate_demand(place):
         return 80
     return 30
 
-# =================================================
+# -------------------------------------------------
 # FEATURE GENERATION
-# =================================================
+# -------------------------------------------------
 def build_features(from_place, to_place, is_peak):
     now = datetime.utcnow()
     hour = now.hour
@@ -109,9 +105,9 @@ def build_features(from_place, to_place, is_peak):
 
     return features, avg_speed
 
-# =================================================
-# USER INPUT UI
-# =================================================
+# -------------------------------------------------
+# UI INPUTS
+# -------------------------------------------------
 st.subheader("📍 Enter trip locations (New York City)")
 
 from_place = st.text_input(
@@ -132,57 +128,52 @@ time_mode = st.radio(
 
 is_peak = time_mode == "Peak Hours"
 
-# =================================================
+# -------------------------------------------------
 # PREDICTION
-# =================================================
+# -------------------------------------------------
 if st.button("🔍 Predict Surge"):
 
     if not from_place or not to_place:
         st.warning("Please enter both locations")
-        st.stop()
-
-    with st.spinner("Resolving locations using Google API..."):
-        from_geo = geocode_place(from_place)
-        to_geo = geocode_place(to_place)
-
-    if not from_geo or not to_geo:
-        st.error("❌ Invalid location name. Be more specific.")
-        st.stop()
-
-    distance_km = haversine(
-        from_geo[0], from_geo[1],
-        to_geo[0], to_geo[1]
-    )
-
-    features, avg_speed = build_features(from_place, to_place, is_peak)
-    surge_prob = model.predict_proba(features)[0][1]
-
-    travel_time_min = (distance_km / avg_speed) * 60
-
-    st.markdown("---")
-    st.subheader("🚦 Route Result")
-
-    if surge_prob >= 0.75:
-        st.error("🔥 VERY BUSY")
-        st.write("High demand and heavy congestion expected.")
-    elif surge_prob >= 0.45:
-        st.warning("⚠️ MODERATELY BUSY")
-        st.write("Moderate demand, possible delays.")
     else:
-        st.success("✅ NOT BUSY")
-        st.write("Normal traffic conditions.")
+        with st.spinner("Resolving locations..."):
+            from_geo = geocode_place(from_place)
+            to_geo = geocode_place(to_place)
 
-    st.markdown("### ⏱️ Estimated Travel Time")
-    st.write(f"🛣️ Distance: **{distance_km:.1f} km**")
-    st.write(f"🚗 Avg Speed: **{avg_speed} km/h**")
-    st.write(f"⏰ ETA: **{travel_time_min:.0f} minutes**")
+        if not from_geo or not to_geo:
+            st.error("❌ Could not detect one or both locations. Try clearer names.")
+        else:
+            distance_km = haversine(
+                from_geo[0], from_geo[1],
+                to_geo[0], to_geo[1]
+            )
 
-# =================================================
+            features, avg_speed = build_features(from_place, to_place, is_peak)
+            surge_prob = model.predict_proba(features)[0][1]
+
+            travel_time_min = (distance_km / avg_speed) * 60
+
+            st.markdown("---")
+            st.subheader("🚦 Route Result")
+
+            if surge_prob >= 0.75:
+                st.error("🔥 VERY BUSY")
+            elif surge_prob >= 0.45:
+                st.warning("⚠️ MODERATELY BUSY")
+            else:
+                st.success("✅ NOT BUSY")
+
+            st.markdown("### ⏱️ Estimated Travel Time")
+            st.write(f"🛣️ Distance: **{distance_km:.1f} km**")
+            st.write(f"🚗 Avg Speed: **{avg_speed} km/h**")
+            st.write(f"⏰ ETA: **{travel_time_min:.0f} minutes**")
+
+# -------------------------------------------------
 # FOOTER
-# =================================================
+# -------------------------------------------------
 st.markdown("---")
 st.caption(
     "Geocoding via Google API. "
-    "Surge model trained on NYC taxi data. "
-    "Travel time is estimated."
+    "Model trained on NYC taxi data. "
+    "ETA is estimated."
 )
