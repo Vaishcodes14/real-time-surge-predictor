@@ -4,18 +4,19 @@ import joblib
 import requests
 import time
 from datetime import datetime
+from math import radians, cos, sin, asin, sqrt
 
 # =================================================
 # PAGE CONFIG
 # =================================================
 st.set_page_config(
-    page_title="Ride Demand Status Checker",
+    page_title="Ride Demand & Travel Time Estimator",
     page_icon="🚕",
     layout="centered"
 )
 
-st.title("🚕 Ride Demand Status Checker")
-st.caption("Check how busy a route is before booking a ride")
+st.title("🚕 Ride Demand & Travel Time Estimator")
+st.caption("NYC-based surge & travel time prediction")
 
 # =================================================
 # LOAD MODEL & ZONE DATA (CACHED)
@@ -32,7 +33,7 @@ model = load_model()
 zones = load_zones()
 
 # =================================================
-# OPENSTREETMAP GEOCODING (SAFE)
+# GEOCODING (OPENSTREETMAP)
 # =================================================
 def geocode_place(place_name):
     url = "https://nominatim.openstreetmap.org/search"
@@ -41,94 +42,81 @@ def geocode_place(place_name):
         "format": "json",
         "limit": 1
     }
-    headers = {
-        "User-Agent": "RideDemandChecker/1.0 (academic-project)"
-    }
+    headers = {"User-Agent": "RideDemandEstimator/1.0 (academic-project)"}
 
     for _ in range(3):
         try:
             r = requests.get(url, params=params, headers=headers, timeout=15)
             r.raise_for_status()
             data = r.json()
-
             if not data:
                 return None
-
             return {
                 "lat": float(data[0]["lat"]),
                 "lon": float(data[0]["lon"]),
                 "display": data[0]["display_name"]
             }
-
         except requests.exceptions.RequestException:
             time.sleep(1)
 
     return None
 
 # =================================================
-# MAP COORDINATES → ZONE
+# DISTANCE (HAVERSINE)
 # =================================================
-def latlon_to_zone(lat, lon):
-    df = zones.copy()
-    df["dist"] = (df["lat"] - lat) ** 2 + (df["lon"] - lon) ** 2
-    return int(df.sort_values("dist").iloc[0]["zone_id"])
-
-# =================================================
-# DEMAND SIMULATION (KEY LOGIC)
-# =================================================
-def estimate_demand(place_name):
-    name = place_name.lower()
-
-    high_demand = [
-        "airport", "station", "downtown", "central",
-        "mall", "market", "stadium", "tech park",
-        "it park", "terminal", "business"
-    ]
-
-    medium_demand = [
-        "city", "road", "circle", "square",
-        "junction", "plaza"
-    ]
-
-    for word in high_demand:
-        if word in name:
-            return 140
-
-    for word in medium_demand:
-        if word in name:
-            return 80
-
-    return 30  # residential / calm area
+def haversine(lat1, lon1, lat2, lon2):
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a))
+    return 6371 * c  # km
 
 # =================================================
-# FEATURE GENERATION
+# DEMAND ESTIMATION (NYC STYLE)
 # =================================================
-def build_features(from_place, to_place):
+def estimate_demand(place):
+    name = place.lower()
+    if any(w in name for w in ["airport", "station", "downtown", "central", "mall", "terminal"]):
+        return 140
+    if any(w in name for w in ["square", "avenue", "road", "park"]):
+        return 80
+    return 30
+
+# =================================================
+# FEATURE GENERATION (PEAK AWARE)
+# =================================================
+def build_features(from_place, to_place, is_peak):
     now = datetime.utcnow()
     hour = now.hour
     day = now.weekday()
 
-    pickup_count = estimate_demand(from_place)
-    od_trip_count = estimate_demand(to_place)
+    pickup = estimate_demand(from_place)
+    drop = estimate_demand(to_place)
 
-    avg_travel_time = 35 if pickup_count > 100 else 20
-    avg_speed = 15 if pickup_count > 100 else 30
+    # Speed logic
+    if is_peak:
+        avg_speed = 12 if pickup > 100 else 18
+    else:
+        avg_speed = 25 if pickup > 100 else 35
 
-    return pd.DataFrame([{
-        "pickup_count": pickup_count,
-        "od_trip_count": od_trip_count,
-        "avg_travel_time": avg_travel_time,
+    features = pd.DataFrame([{
+        "pickup_count": pickup,
+        "od_trip_count": drop,
+        "avg_travel_time": 0,
         "avg_speed": avg_speed,
         "hour": hour,
         "dayofweek": day,
         "is_weekend": int(day >= 5),
-        "is_rush_hour": int(hour in [7, 8, 9, 16, 17, 18, 19])
+        "is_rush_hour": int(is_peak)
     }])
+
+    return features, avg_speed
 
 # =================================================
 # UI INPUTS
 # =================================================
-st.subheader("📍 Enter trip locations")
+st.subheader("📍 Enter trip locations (NYC)")
 
 from_place = st.text_input(
     "From location",
@@ -140,53 +128,71 @@ to_place = st.text_input(
     placeholder="e.g. Times Square, Manhattan"
 )
 
+# PEAK / OFF-PEAK TOGGLE
+time_mode = st.radio(
+    "⏰ Select travel time",
+    ["Peak Hours (8–10 AM / 5–7 PM)", "Off-Peak Hours"],
+    horizontal=True
+)
+
+is_peak = time_mode.startswith("Peak")
+
 # =================================================
 # PREDICTION
 # =================================================
-if st.button("🔍 Check Route Status"):
+if st.button("🔍 Analyze Route"):
 
     if not from_place or not to_place:
         st.warning("Please enter both locations")
         st.stop()
 
-    with st.spinner("Detecting locations..."):
+    with st.spinner("Resolving locations..."):
         from_geo = geocode_place(from_place)
         to_geo = geocode_place(to_place)
 
-    if from_geo is None:
-        st.error(f"❌ Could not detect FROM location: {from_place}")
+    if from_geo is None or to_geo is None:
+        st.error("❌ Unable to detect one or both locations.")
         st.stop()
 
-    if to_geo is None:
-        st.error(f"❌ Could not detect TO location: {to_place}")
-        st.stop()
+    # Distance
+    distance_km = haversine(
+        from_geo["lat"], from_geo["lon"],
+        to_geo["lat"], to_geo["lon"]
+    )
 
-    from_zone = latlon_to_zone(from_geo["lat"], from_geo["lon"])
-    to_zone = latlon_to_zone(to_geo["lat"], to_geo["lon"])
-
-    features = build_features(from_place, to_place)
+    features, avg_speed = build_features(from_place, to_place, is_peak)
     surge_prob = model.predict_proba(features)[0][1]
 
-    st.markdown("---")
-    st.subheader("🚦 Route Demand Status")
+    travel_time_min = (distance_km / avg_speed) * 60
 
-    # =================================================
-    # BUSY STATUS (USER FRIENDLY OUTPUT)
-    # =================================================
+    st.markdown("---")
+    st.subheader("🚦 Route Analysis")
+
+    # BUSY STATUS
     if surge_prob >= 0.75:
         st.error("🔥 VERY BUSY")
-        st.write("High demand detected. Expect surge pricing and longer wait times.")
+        status = "Heavy demand and congestion expected"
     elif surge_prob >= 0.45:
         st.warning("⚠️ MODERATELY BUSY")
-        st.write("Demand is rising. Some delays may occur.")
+        status = "Moderate demand, possible delays"
     else:
         st.success("✅ NOT BUSY")
-        st.write("Normal demand. Easy availability of rides.")
+        status = "Smooth traffic conditions"
 
-    st.caption(f"Route: Zone {from_zone} → Zone {to_zone}")
+    st.write(status)
+
+    st.markdown("### ⏱️ Estimated Time to Reach")
+    st.write(f"🛣️ Distance: **{distance_km:.1f} km**")
+    st.write(f"🚗 Average speed: **{avg_speed} km/h**")
+    st.write(f"⏰ Estimated time: **{travel_time_min:.0f} minutes**")
+
+    st.caption(f"Mode selected: {'Peak Hours' if is_peak else 'Off-Peak Hours'}")
 
 # =================================================
 # FOOTER
 # =================================================
 st.markdown("---")
-st.caption("OpenStreetMap + LightGBM | Academic Project Demo")
+st.caption(
+    "Peak hours simulate rush-hour congestion. "
+    "Model trained on NYC taxi data. Travel time is estimated."
+)
