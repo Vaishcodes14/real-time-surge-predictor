@@ -6,6 +6,9 @@ import os
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
 
+st.write("API KEY FOUND:", GOOGLE_API_KEY is not None)
+
+
 # =================================================
 # PAGE CONFIG
 # =================================================
