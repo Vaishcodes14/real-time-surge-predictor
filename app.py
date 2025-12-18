@@ -18,7 +18,7 @@ app = FastAPI(title="Ride Demand Surge API")
 model = joblib.load("lightgbm_surge_model.joblib")
 zones = pd.read_csv("zone_centroids.csv")
 
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
 
 if not GOOGLE_API_KEY:
     raise RuntimeError("GOOGLE_API_KEY not set in environment variables")
