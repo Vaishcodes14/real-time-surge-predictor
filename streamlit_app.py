@@ -43,16 +43,20 @@ def geocode_place(place):
         "key": GOOGLE_API_KEY
     }
 
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        data = r.json()
-        if data.get("status") != "OK":
-            return None
+    r = requests.get(url, params=params, timeout=10)
+    data = r.json()
 
-        loc = data["results"][0]["geometry"]["location"]
-        return loc["lat"], loc["lng"]
-    except:
+    # 🔴 DEBUG OUTPUT
+    st.write("Geocode request:", place)
+    st.write("Google response status:", data.get("status"))
+    st.write("Full response:", data)
+
+    if data.get("status") != "OK":
         return None
+
+    loc = data["results"][0]["geometry"]["location"]
+    return loc["lat"], loc["lng"]
+
 
 # =================================================
 # WEATHER (OPENWEATHERMAP)
