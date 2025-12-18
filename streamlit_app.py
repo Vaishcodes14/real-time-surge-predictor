@@ -22,7 +22,7 @@ st.caption("NYC-based | Google Geocoding | Weather-aware")
 # LOAD API KEYS (NO CHECKS)
 # =================================================
 GOOGLE_API_KEY = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+OPENWEATHER_API_KEY = os.getenv("fc66323ad12fd29d89668cd000db815c")
 
 # =================================================
 # LOAD MODEL
@@ -40,7 +40,7 @@ def geocode_place(place):
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {
         "address": place,
-        "key": AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI
+        "key": GOOGLE_API_KEY
     }
 
     try:
@@ -58,14 +58,14 @@ def geocode_place(place):
 # WEATHER (OPENWEATHERMAP)
 # =================================================
 def get_weather(lat, lon):
-    if not fc66323ad12fd29d89668cd000db815c:
+    if not OPENWEATHER_API_KEY:
         return "Unknown"
 
     url = "https://api.openweathermap.org/data/2.5/weather"
     params = {
         "lat": lat,
         "lon": lon,
-        "appid": fc66323ad12fd29d89668cd000db815c,
+        "appid": OPENWEATHER_API_KEY,
         "units": "metric"
     }
 
