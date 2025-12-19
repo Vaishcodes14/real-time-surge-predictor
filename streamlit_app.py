@@ -16,7 +16,7 @@ st.caption("NYC | Google Location | Weather-aware")
 # -------------------------------
 # Load API keys
 # -------------------------------
-GOOGLE_API_KEY = os.getenv("AIzaSyCdLCL3NZhOnEtR-n87ia13tJvjABAOpGI")
+GOOGLE_API_KEY = os.getenv("AIzaSyA-UGewPptEcN_i3dLalNe7kpkr93FlUH0")
 OPENWEATHER_API_KEY = os.getenv("fc66323ad12fd29d89668cd000db815c")
 
 # -------------------------------
