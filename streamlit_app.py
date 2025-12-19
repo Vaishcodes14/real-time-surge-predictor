@@ -5,7 +5,7 @@ import requests
 import os
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
-st.write("GOOGLE_API_KEY value:", GOOGLE_API_KEY)
+st.write("AIzaSyA-UGewPptEcN_i3dLalNe7kpkr93FlUH0", GOOGLE_API_KEY)
 
 
 # =================================================
