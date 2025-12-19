@@ -5,8 +5,12 @@ import requests
 import os
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
-st.write("AIzaSyA-UGewPptEcN_i3dLalNe7kpkr93FlUH0", GOOGLE_API_KEY)
 
+# =================================================
+# LOAD API KEYS (MUST BE HERE, RIGHT AFTER IMPORTS)
+# =================================================
+GOOGLE_API_KEY = os.getenv("AIzaSyA-UGewPptEcN_i3dLalNe7kpkr93FlUH0")
+OPENWEATHER_API_KEY = os.getenv("fc66323ad12fd29d89668cd000db815c")
 
 # =================================================
 # PAGE CONFIG
@@ -19,12 +23,6 @@ st.set_page_config(
 
 st.title("🚕 Ride Demand Surge Predictor")
 st.caption("Google Maps + OpenWeather + ML (NYC Taxi Data)")
-
-# =================================================
-# LOAD API KEYS (BEST PRACTICE)
-# =================================================
-GOOGLE_API_KEY = os.getenv("AIzaSyA-UGewPptEcN_i3dLalNe7kpkr93FlUH0")
-OPENWEATHER_API_KEY = os.getenv("fc66323ad12fd29d89668cd000db815c")
 
 # =================================================
 # LOAD ML MODEL
@@ -84,7 +82,7 @@ def haversine(lat1, lon1, lat2, lon2):
     return 6371 * 2 * asin(sqrt(a))  # km
 
 # =================================================
-# SIMPLE DEMAND HEURISTIC
+# DEMAND HEURISTIC
 # =================================================
 def estimate_demand(place):
     p = place.lower()
@@ -146,7 +144,6 @@ if st.button("🔍 Predict Surge"):
 
             now = datetime.utcnow()
 
-            # Speed logic
             avg_speed = 28
             if is_peak:
                 avg_speed -= 8
